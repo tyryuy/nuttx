@@ -59,6 +59,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <syslog.h>
 #include <nuttx/debug.h>
 #include <stdlib.h>
 #include <math.h>
@@ -370,6 +371,9 @@ static bool lsm6dsl_isbitset(int8_t b, int8_t m)
 
 static int lsm6dsl_sensor_start(FAR struct lsm6dsl_dev_s *priv)
 {
+  uint8_t regval;
+  int ret;
+
   /* Enable the accelerometer */
 
   /* Reset values */
@@ -386,21 +390,63 @@ static int lsm6dsl_sensor_start(FAR struct lsm6dsl_dev_s *priv)
    * Turn on the accelerometer: 833Hz, +- 16g
    */
 
-  lsm6dsl_writereg8(priv, LSM6DSL_CTRL1_XL, 0x74);
+  ret = lsm6dsl_writereg8(priv, LSM6DSL_CTRL1_XL, 0x74);
+  if (ret < 0)
+    {
+      snerr("ERROR: failed to write CTRL1_XL: %d\n", ret);
+      return ret;
+    }
+
   g_accelerofactor = 0.488;
 
   /* Gyro config registers Turn on the gyro: FS=2000dps, ODR=833Hz Not using
    * modifyreg with empty value!!!! Then read value first!!!
    */
 
-  lsm6dsl_writereg8(priv, LSM6DSL_CTRL2_G, 0x7c);
+  ret = lsm6dsl_writereg8(priv, LSM6DSL_CTRL2_G, 0x7c);
+  if (ret < 0)
+    {
+      snerr("ERROR: failed to write CTRL2_G: %d\n", ret);
+      return ret;
+    }
+
   g_gyrofactor = 70;
 
-  lsm6dsl_writereg8(priv, LSM6DSL_CTRL6_C, 0x00);
+  ret = lsm6dsl_writereg8(priv, LSM6DSL_CTRL6_C, 0x00);
+  if (ret < 0)
+    {
+      snerr("ERROR: failed to write CTRL6_C: %d\n", ret);
+      return ret;
+    }
 
   /* Timestamp registers */
 
-  lsm6dsl_writereg8(priv, LSM6DSL_CTRL10_C, 0x20);
+  ret = lsm6dsl_writereg8(priv, LSM6DSL_CTRL10_C, 0x20);
+  if (ret < 0)
+    {
+      snerr("ERROR: failed to write CTRL10_C: %d\n", ret);
+      return ret;
+    }
+
+  ret = lsm6dsl_readreg8(priv, LSM6DSL_CTRL1_XL, &regval);
+  if (ret < 0)
+    {
+      snerr("ERROR: failed to read back CTRL1_XL: %d\n", ret);
+      return ret;
+    }
+
+  sninfo("CTRL1_XL readback: %02x\n", regval);
+  syslog(LOG_INFO, "LSM6DSLDBG: CTRL1_XL readback=0x%02x\n", regval);
+
+  ret = lsm6dsl_readreg8(priv, LSM6DSL_CTRL2_G, &regval);
+  if (ret < 0)
+    {
+      snerr("ERROR: failed to read back CTRL2_G: %d\n", ret);
+      return ret;
+    }
+
+  sninfo("CTRL2_G readback: %02x\n", regval);
+  syslog(LOG_INFO, "LSM6DSLDBG: CTRL2_G readback=0x%02x\n", regval);
 
   return OK;
 }
@@ -422,14 +468,14 @@ static int lsm6dsl_sensor_stop(FAR struct lsm6dsl_dev_s *priv)
   /* Stop accelerometer */
 
   lsm6dsl_modifyreg8(priv,
-                     LSM6DSL_CTRL1_XL_ODR_XL_SHIFT,
+                     LSM6DSL_CTRL1_XL,
                      LSM6DSL_CTRL1_XL_ODR_XL_MASK,
                      LSM6DSL_CTRL1_XL_ODR_XL_POWER_DOWN);
 
   /* Stop gyro */
 
   lsm6dsl_modifyreg8(priv,
-                     LSM6DSL_CTRL2_G_ODR_G_SHIFT,
+                     LSM6DSL_CTRL2_G,
                      LSM6DSL_CTRL2_G_ODR_G_MASK,
                      LSM6DSL_CTRL2_G_ODR_G_POWER_DOWN);
 
@@ -850,6 +896,7 @@ static int lsm6dsl_selftest(FAR struct lsm6dsl_dev_s *priv, uint32_t mode)
 static int lsm6dsl_sensor_read(FAR struct lsm6dsl_dev_s *priv,
                                FAR struct lsm6dsl_sensor_data_s *sdata)
 {
+  int ret;
   int16_t lox   = 0;
   int16_t loxg  = 0;
   int16_t hix   = 0;
@@ -882,40 +929,52 @@ static int lsm6dsl_sensor_read(FAR struct lsm6dsl_dev_s *priv,
   int16_t yf_val = 0;
   int16_t zf_val = 0;
 
+#define LSM6DSL_READ_OR_RETURN(r, v) \
+  do \
+    { \
+      ret = lsm6dsl_readreg8(priv, (r), (FAR uint8_t *)(v)); \
+      if (ret < 0) \
+        { \
+          snerr("ERROR: failed to read reg 0x%02x: %d\n", (r), ret); \
+          return ret; \
+        } \
+    } \
+  while (0)
+
   /* Accelerometer */
 
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTX_L_XL, (FAR uint8_t *)&lox);
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTX_H_XL, (FAR uint8_t *)&hix);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTX_L_XL, &lox);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTX_H_XL, &hix);
 
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTY_L_XL, (FAR uint8_t *)&loy);
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTY_H_XL, (FAR uint8_t *)&hiy);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTY_L_XL, &loy);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTY_H_XL, &hiy);
 
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTZ_L_XL, (FAR uint8_t *)&loz);
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTZ_H_XL, (FAR uint8_t *)&hiz);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTZ_L_XL, &loz);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTZ_H_XL, &hiz);
 
   /* Gyro */
 
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTX_L_G, (FAR uint8_t *)&loxg);
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTX_H_G, (FAR uint8_t *)&hixg);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTX_L_G, &loxg);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTX_H_G, &hixg);
 
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTY_L_G, (FAR uint8_t *)&loyg);
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTY_H_G, (FAR uint8_t *)&hiyg);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTY_L_G, &loyg);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTY_H_G, &hiyg);
 
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTZ_L_G, (FAR uint8_t *)&lozg);
-  lsm6dsl_readreg8(priv, LSM6DSL_OUTZ_H_G, (FAR uint8_t *)&hizg);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTZ_L_G, &lozg);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUTZ_H_G, &hizg);
 
   /* Timestamp */
 
-  lsm6dsl_readreg8(priv, LSM6DSL_TIMESTAMP0_REG, &tstamp0);
-  lsm6dsl_readreg8(priv, LSM6DSL_TIMESTAMP1_REG, &tstamp1);
-  lsm6dsl_readreg8(priv, LSM6DSL_TIMESTAMP2_REG, &tstamp2);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_TIMESTAMP0_REG, &tstamp0);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_TIMESTAMP1_REG, &tstamp1);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_TIMESTAMP2_REG, &tstamp2);
 
   ts = (tstamp2 << 16) | (tstamp1 << 8) | tstamp0;
 
   /* Temperature */
 
-  lsm6dsl_readreg8(priv, LSM6DSL_OUT_TEMP_L, (FAR uint8_t *)&templ);
-  lsm6dsl_readreg8(priv, LSM6DSL_OUT_TEMP_H, (FAR uint8_t *)&temph);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUT_TEMP_L, &templ);
+  LSM6DSL_READ_OR_RETURN(LSM6DSL_OUT_TEMP_H, &temph);
 
   xf_val = (int16_t) ((hix << 8) | lox);
   yf_val = (int16_t) ((hiy << 8) | loy);
@@ -952,6 +1011,8 @@ static int lsm6dsl_sensor_read(FAR struct lsm6dsl_dev_s *priv,
   sdata->g_y_data = y_valg * g_gyrofactor;
   sdata->g_z_data = z_valg * g_gyrofactor;
 
+#undef LSM6DSL_READ_OR_RETURN
+
   return OK;
 }
 
@@ -987,13 +1048,16 @@ static ssize_t lsm6dsl_read(FAR struct file *filep,
   priv = inode->i_private;
 
   DEBUGASSERT(priv != NULL);
-  DEBUGASSERT(priv->datareg == LSM6DSL_OUTX_L_G_SHIFT ||
-              priv->datareg == LSM6DSL_OUTX_L_XL_SHIFT);
+  DEBUGASSERT(priv->datareg == LSM6DSL_OUTX_L_G ||
+              priv->datareg == LSM6DSL_OUTX_L_XL);
   DEBUGASSERT(buffer != NULL);
 
   samplesize = 3 * sizeof(*ptr);
   nsamples = buflen / samplesize;
   ptr = (FAR int16_t *) buffer;
+
+  sninfo("read buflen=%zu samples=%zu datareg=0x%02x\n",
+         buflen, nsamples, priv->datareg);
 
   /* Get the requested number of samples */
 
@@ -1063,6 +1127,13 @@ static ssize_t lsm6dsl_read(FAR struct file *filep,
               ptr[j] = (int16_t) (-32768);
             }
         }
+
+      sninfo("read raw sample[%zu]: x=%d y=%d z=%d\n",
+             i, ptr[0], ptr[1], ptr[2]);
+      syslog(LOG_INFO,
+             "LSM6DSLDBG: read sample[%zu] raw x=%d y=%d z=%d\n",
+             i, ptr[0], ptr[1], ptr[2]);
+      ptr += 3;
     }
 
   /* Feed sensor data to entropy pool */
@@ -1180,8 +1251,8 @@ static int lsm6dsl_register(FAR const char *devpath,
 
   DEBUGASSERT(devpath != NULL);
   DEBUGASSERT(i2c != NULL);
-  DEBUGASSERT(datareg == LSM6DSL_OUTX_L_XL_SHIFT ||
-              datareg == LSM6DSL_OUTX_L_G_SHIFT);
+  DEBUGASSERT(datareg == LSM6DSL_OUTX_L_XL ||
+              datareg == LSM6DSL_OUTX_L_G);
 
   /* Initialize the device's structure */
 
@@ -1245,14 +1316,14 @@ static int lsm6dsl_register(FAR const char *devpath,
 int lsm6dsl_sensor_register(FAR const char *devpath,
                             FAR struct i2c_master_s *i2c, uint8_t addr)
 {
-  struct lsm6dsl_sensor_data_s sensor_data;
+  struct lsm6dsl_sensor_data_s sensor_data = { 0 };
 
   DEBUGASSERT(addr == LSM6DSLACCEL_ADDR0 || addr == LSM6DSLACCEL_ADDR1);
 
   sninfo("Trying to register accel\n");
 
   return lsm6dsl_register(devpath, i2c, addr, &g_lsm6dsl_sensor_ops,
-                          LSM6DSL_OUTX_L_XL_SHIFT, sensor_data);
+                          LSM6DSL_OUTX_L_XL, sensor_data);
 }
 
 #endif /* CONFIG_I2C && CONFIG_SENSORS_LSM6DSL */

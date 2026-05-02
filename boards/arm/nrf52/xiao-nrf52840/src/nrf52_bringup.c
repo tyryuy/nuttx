@@ -100,6 +100,14 @@ int nrf52_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_SENSORS_LSM6DSL
+  ret = nrf52_lsm6ds3_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: nrf52_lsm6ds3_initialize failed: %d\n", ret);
+    }
+#endif
+
   UNUSED(ret);
   return OK;
 }
