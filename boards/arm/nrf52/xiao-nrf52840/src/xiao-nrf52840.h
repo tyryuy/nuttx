@@ -121,5 +121,9 @@ int nrf52_gpio_initialize(void);
 
 int nrf52_bringup(void);
 
+#ifdef CONFIG_SENSORS_LSM6DSL
+int nrf52_lsm6ds3_initialize(void);
+#endif
+
 #endif /* __ASSEMBLY__ */
 #endif /* __BOARDS_ARM_NRF52_XIAO_NRF52840_SRC_XIAO_NRF52840_H */
