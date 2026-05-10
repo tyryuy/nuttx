@@ -40,9 +40,9 @@ if(CONFIG_DEV_GPIO)
   list(APPEND SRCS nrf52_gpio.c)
 endif()
 
-#if(CONFIG_SENSORS_LSM6DSL)
-#  list(APPEND SRCS nrf52_lsm6ds3.c)
-#endif()
+if(CONFIG_SENSORS_LSM6DSL)
+  list(APPEND SRCS nrf52_lsm6ds3.c)
+endif()
 
 target_sources(board PRIVATE ${SRCS})
 
